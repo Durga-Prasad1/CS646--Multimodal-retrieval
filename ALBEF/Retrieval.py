@@ -24,7 +24,7 @@ import utils
 from dataset import create_dataset, create_sampler, create_loader
 from scheduler import create_scheduler
 from optim import create_optimizer
-import pandas as pd
+from tqdm import tqdm
 
 
 def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
@@ -107,7 +107,7 @@ def evaluation_product(model,data_loader,tokenizer, device):
     text_feats = []
     text_embeds = []
     text_atts = []
-    for i in range(0, num_text, text_bs):
+    for i in tqdm(range(0, num_text, text_bs)):
         text = texts[i: min(num_text, i+text_bs)]
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
         text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
@@ -122,7 +122,7 @@ def evaluation_product(model,data_loader,tokenizer, device):
     
     image_feats = []
     image_embeds = []
-    for image, img_id in data_loader: 
+    for image, img_id in tqdm(data_loader): 
         image = image.to(device) 
         image_feat = model.visual_encoder(image)          
         image_feats.append(image_feat)
@@ -132,16 +132,26 @@ def evaluation_product(model,data_loader,tokenizer, device):
      
     image_feats = torch.cat(image_feats,dim=0)
     image_embeds = torch.cat(image_embeds,dim=0)
-    image_atts = torch.ones(image_feats.size()[:-1],dtype=torch.long).to(device)
 
-    output = model.text_encoder(encoder_embeds = text_feats, 
-                                attention_mask = text_atts,
-                                encoder_hidden_states = image_feats,
-                                encoder_attention_mask = image_atts,      
+
+    multimodal_embeds = torch.tensor([])
+    fusion_bs = 64
+    for i in tqdm(range(0, num_text, fusion_bs)):
+        text_feats_fusion = text_feats[i: min(num_text, i+fusion_bs)]
+        text_attn_fusion = text_atts[i: min(num_text, i+fusion_bs)]
+        image_feats_fusion = image_feats[i: min(num_text, i+fusion_bs)]
+        image_attn_fusion = torch.ones(image_feats_fusion.size()[:-1],dtype=torch.long).to(device)
+        output = model.text_encoder(encoder_embeds = text_feats_fusion, 
+                                attention_mask = text_attn_fusion,
+                                encoder_hidden_states = image_feats_fusion,
+                                encoder_attention_mask = image_attn_fusion,      
                                 return_dict = True,
                                 mode = 'fusion',
                                 )  
-    multimodal_cls_embeds = F.normalize(output.last_hidden_state[:,0,:])
+        multimodal_embeds = torch.cat((multimodal_embeds,output.last_hidden_state[:,0,:]),dim = 0)
+
+
+    multimodal_cls_embeds = F.normalize(multimodal_embeds)
    
     queries_info = data_loader.dataset.queries
     qids = [] 
@@ -154,7 +164,7 @@ def evaluation_product(model,data_loader,tokenizer, device):
     query_feats = []
     query_embeds = []
     query_atts = []
-    for i in range(0, num_text, query_bs):
+    for i in tqdm(range(0, num_text, query_bs)):
         text = queries[i: min(num_text, i+query_bs)]
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
         text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
