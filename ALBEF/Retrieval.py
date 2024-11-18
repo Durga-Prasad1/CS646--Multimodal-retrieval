@@ -43,7 +43,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     for i,(image, text, idx) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         image = image.to(device,non_blocking=True)   
         idx = idx.to(device,non_blocking=True)   
-        text_input = tokenizer(text, padding='longest', max_length=30, return_tensors="pt").to(device)  
+        text_input = tokenizer(text, padding='longest', max_length=75, return_tensors="pt").to(device)  
             
         if epoch>0 or not config['warm_up']:
             alpha = config['alpha']
@@ -68,33 +68,38 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     print("Averaged stats:", metric_logger.global_avg())     
     return {k: "{:.3f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}  
 
-def compute_product_metrics(qids,rank_indices,topk=10):
-    p = pd.read_csv("../df_Examples_Products_IMG_URLS_test.csv")
-    with open('./data/test_data.json', "r") as file:
+def compute_product_metrics(qids,ranked_indices,data_file,data_labels_file):
+    with open(data_file, "r") as file:
         data = json.load(file)
-    avg_precision = 0
-    avg_recall = 0
+    with open(data_labels_file, "r") as file:
+        data_labels = json.load(file)
+
+    precision = {1:0,3:0,5:0,10:0}
+    recall = {1:0,3:0,5:0,10:0}
+    
     for index,qid in enumerate(qids):
-        relevant_products = p[p['query_id'] == qid]['product_id'].tolist()
-        ranked_product_ids = [data[i]['product_id'] for i in rank_indices[index]][:topk]
-         # Calculate recall
-        relevant_in_top_k = len(list(set(ranked_product_ids) & set(relevant_products)))
-        avg_recall += relevant_in_top_k / len(relevant_products)
-        
-        # Calculate precision
-        avg_precision += relevant_in_top_k / topk
-    return avg_precision/len(qids) , avg_recall/len(qids)
+        relevant_products = data_labels[str(qid)]
+        ranked_product_ids = [data[i]['product_id'] for i in ranked_indices[index]]
+        for top_k in [1,3,5,10]:
+            ranked_top_k = ranked_product_ids[:top_k]
+            # Calculate recall
+            relevant_in_top_k = len(list(set(ranked_top_k) & set(relevant_products)))
+            recall[top_k] += relevant_in_top_k / len(relevant_products)
+            
+            # Calculate precision
+            precision[top_k] += relevant_in_top_k / top_k
+
+    precision = {key:val/len(qids) for key,val in precision.items()}
+    recall = {key:val/len(qids) for key,val in recall.items()}
+
+    return  precision,recall 
     
 @torch.no_grad()
-def evaluation_product(model,data_loader,tokenizer, device, config):
+def evaluation_product(model,data_loader,tokenizer, device):
      # test
-    model.eval() 
-    
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    header = 'Evaluation:'    
+    model.eval()   
     
     print('Computing features for evaluation...')
-    start_time = time.time()  
 
     texts = data_loader.dataset.text   
     num_text = len(texts)
@@ -104,7 +109,7 @@ def evaluation_product(model,data_loader,tokenizer, device, config):
     text_atts = []
     for i in range(0, num_text, text_bs):
         text = texts[i: min(num_text, i+text_bs)]
-        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device) 
+        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
         text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
         text_feat = text_output.last_hidden_state 
         text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
@@ -151,7 +156,7 @@ def evaluation_product(model,data_loader,tokenizer, device, config):
     query_atts = []
     for i in range(0, num_text, query_bs):
         text = queries[i: min(num_text, i+query_bs)]
-        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device) 
+        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
         text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
         text_feat = text_output.last_hidden_state  
         text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
@@ -169,7 +174,7 @@ def evaluation_product(model,data_loader,tokenizer, device, config):
     # similarities_i =  torch.mm(query_embeds,image_embeds.T)
     # similarities = similarities_i + similarities_t
     ranked_indices = torch.argsort(similarities, descending=True,dim=1).cpu()
-    return compute_product_metrics(qids,ranked_indices,3)
+    return qids,ranked_indices
 
 @torch.no_grad()
 def evaluation(model, data_loader, tokenizer, device, config):
@@ -415,7 +420,8 @@ def main(args, config):
             # test_result = itm_eval(score_test_i2t, score_test_t2i, test_loader.dataset.txt2img, test_loader.dataset.img2txt)  
 
             if args.evaluate:      
-                precision,recall = evaluation_product(model_without_ddp, test_loader, tokenizer, device, config)
+                qids,ranked_indices = evaluation_product(model_without_ddp, test_loader, tokenizer, device)
+                precision, recall = compute_product_metrics(qids,ranked_indices,config['test_file'],config['test_labels'])
                 print(precision,recall)          
                 # log_stats = {**{f'val_{k}': v for k, v in val_result.items()},
                 #              **{f'test_{k}': v for k, v in test_result.items()},                  
@@ -424,8 +430,8 @@ def main(args, config):
                 # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
                 #     f.write(json.dumps(log_stats) + "\n")     
             else:
-                val_precision,val_recall = evaluation_product(model_without_ddp, val_loader, tokenizer, device, config)
-                print(precision,recall)
+                qids,ranked_indices = evaluation_product(model_without_ddp, val_loader, tokenizer, device)
+                val_precision, val_recall = compute_product_metrics(qids,ranked_indices,config['val_file'],config['val_labels'])
                 # log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                 #              **{f'val_{k}': v for k, v in val_result.items()},
                 #              **{f'test_{k}': v for k, v in test_result.items()},                  
@@ -435,7 +441,8 @@ def main(args, config):
                 #     f.write(json.dumps(log_stats) + "\n")   
                     
                 # if val_result['r_mean']>best:
-                if val_precision > best:
+                val_recall_mean = sum(val_recall.values())/len(val_recall.items())
+                if val_recall_mean > best:
                     save_obj = {
                         'model': model_without_ddp.state_dict(),
                         'optimizer': optimizer.state_dict(),
@@ -445,7 +452,7 @@ def main(args, config):
                     }
                     torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth'))  
                     # best = val_result['r_mean']    
-                    best - val_precision
+                    best = val_recall_mean
                     best_epoch = epoch
                     print('best_val',val_precision,val_recall)
                     
