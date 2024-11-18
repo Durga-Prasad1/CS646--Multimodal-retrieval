@@ -88,20 +88,12 @@ class re_product_dataset(Dataset):
         
         self.text = []
         self.image = []
-        self.txt2img = {}
-        self.img2txt = {}
-
         self.queries = {}
         
-        txt_id = 0
-        for img_id, ann in enumerate(self.ann):
+        for ann in self.ann:
             self.image.append(ann['image'])
-            self.img2txt[img_id] = []
             caption = ann['caption']
             self.text.append(pre_caption(caption,self.max_words))
-            self.img2txt[img_id].append(txt_id)
-            self.txt2img[txt_id] = img_id
-            txt_id += 1
             if ann['query'] not in self.queries.keys():
                 self.queries[ann['query_id']] = ann['query']
                                     

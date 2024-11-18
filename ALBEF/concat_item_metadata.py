@@ -46,10 +46,10 @@ def concat_item_metadata_esci(dp):
     #         meta += ' '
     #     meta += ' '.join(dp['features'])
     #     flag = True
-    if type(dp['product_description']) == 'str' and len(dp['product_description']) > 0:
+    if len(dp['product_description']) > 0:
         if flag:
             meta += ' '
-        meta += ' '.join(dp['product_description'])
+        meta += dp['product_description']
     return meta \
         .replace('\t', ' ') \
         .replace('\n', ' ') \

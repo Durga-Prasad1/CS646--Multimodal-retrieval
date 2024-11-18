@@ -1,17 +1,18 @@
 train_file: [data/test_data.json]
 val_file: data/test_data.json
-# test_file: 'data/coco_test.json'
 test_file: data/test_data.json
-# image_root: '/export/share/datasets/vision/coco/images/'
+
+train_labels: data/test_labels.json
+val_labels: data/test_labels.json
+test_labels: data/test_labels.json
+
 image_root: ./
 
 bert_config: configs/config_bert.json
 
 image_res: 384
-batch_size_train: 32
-# batch_size_test: 64
-
-batch_size_test: 1
+batch_size_train: 2
+batch_size_test: 2
 
 queue_size: 65536
 momentum: 0.995
@@ -25,7 +26,7 @@ distill: false
 warm_up: true
 
 optimizer: {opt: adamW, lr: 1e-5, weight_decay: 0.02}
-schedular: {sched: cosine, lr: 1e-5, epochs: 1, min_lr: 1e-6, decay_rate: 1, warmup_lr: 1e-5,
+schedular: {sched: cosine, lr: 1e-5, epochs: 5, min_lr: 1e-6, decay_rate: 1, warmup_lr: 1e-5,
   warmup_epochs: 1, cooldown_epochs: 0}
 
 
