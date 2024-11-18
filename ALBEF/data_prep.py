@@ -21,6 +21,7 @@ def prep_test_data(args):
             for attempt in range(retries):
                 try:
                     response = requests.get(img_url.strip())
+                    print(img_url)
                     if response.status_code == 200:
                         product_image_fetched = True
                         img = Image.open(io.BytesIO(response.content))
@@ -33,7 +34,7 @@ def prep_test_data(args):
                         if samples_needed <= 0 : 
                             with open(args.out_path, 'w') as file:
                                 file.write(json.dumps(data))
-
+                            
                             data_labels = {}
                             data_df = df.iloc[processed_row_indices]
                             for qid in data_df['query_id'].unique():
@@ -46,8 +47,12 @@ def prep_test_data(args):
 
                             return
                         break
+                    if attempt < retries - 1:
+                        time.sleep(1)  # Wait for 2 seconds before retrying
                 except:
-                    pass
+                    time.sleep(1)
+
+
                 
                 time.sleep(1)  # Wait for a seconds before retrying
 
