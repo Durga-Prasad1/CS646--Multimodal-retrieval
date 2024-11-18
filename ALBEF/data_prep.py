@@ -16,25 +16,27 @@ def prep_test_data(args):
         for img_index,img_url in enumerate(row['image_urls'].split('[P_IMG]')[1:]):
             retries = 3
             for attempt in range(retries):
-                response = requests.get(img_url)
-                print(img_url)
-                if response.status_code == 200:
-                    print('fetched')
-                    img = Image.open(io.BytesIO(response.content))
-                    img_extension = img_url.split('.')[-1]
-                    img_id = str(row['product_id'])+'_'+str(img_index)
-                    img_path = args.img_root_path+'/'+img_id+'.'+img_extension
-                    img.save(img_path)
-                    data.append({'image':img_path,'caption':concat_item_metadata_esci(row),'image_id':img_id,'query':row['query'],'product_id':row['product_id'],'query_id':row['query_id']})
-                    samples_needed -= 1
-                    if samples_needed <= 0 : 
-                        with open(args.out_path, 'w') as file:
-                            file.write(json.dumps(data))
-                        return
-                    break
-                if attempt < retries - 1:
-                    time.sleep(1)  # Wait for 2 seconds before retrying
-
+                try:
+                    response = requests.get(img_url.strip())
+                    print(img_url)
+                    if response.status_code == 200:
+                        print('fetched')
+                        img = Image.open(io.BytesIO(response.content))
+                        img_extension = img_url.split('.')[-1]
+                        img_id = str(row['product_id'])+'_'+str(img_index)
+                        img_path = args.img_root_path+'/'+img_id+'.'+'.PNG'
+                        img.save(img_path)
+                        data.append({'image':img_path,'caption':concat_item_metadata_esci(row),'image_id':img_id,'query':row['query'],'product_id':row['product_id'],'query_id':row['query_id']})
+                        samples_needed -= 1
+                        if samples_needed <= 0 : 
+                            with open(args.out_path, 'w') as file:
+                                file.write(json.dumps(data))
+                            return
+                        break
+                    if attempt < retries - 1:
+                        time.sleep(1)  # Wait for 2 seconds before retrying
+                except:
+                    time.sleep(1)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
