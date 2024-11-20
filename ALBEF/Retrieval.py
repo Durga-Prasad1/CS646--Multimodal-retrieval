@@ -149,8 +149,15 @@ def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, 
                                 return_dict = True,
                                 mode = 'fusion',
                                 )  
+#<<<<<<< HEAD
+ #       multimodal_embeds = torch.cat((multimodal_embeds.to(device) ,output.last_hidden_state[:,0,:].to(device) ),dim = 0)
+
+
+#    multimodal_cls_embeds = F.normalize(multimodal_embeds)
+#=======
         multimodal_embeds = torch.cat((multimodal_embeds,output.last_hidden_state[:,0,:]),dim = 0)
     multimodal_product_cls_embeds = F.normalize(multimodal_embeds)
+#>>>>>>> refs/remotes/origin/master
    
     queries_info = data_loader.dataset.queries
     qids = [] 
@@ -176,6 +183,10 @@ def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, 
     query_feats = torch.cat(query_feats,dim=0)
     query_atts = torch.cat(query_atts,dim=0)
 
+#<<<<<<< HEAD
+    query_cls_embeds = F.normalize(query_feats[:,0,:])
+    # similarities = torch.mm(query_cls_embeds, multimodal_cls_embeds.T)
+#=======
     similarities = None
     if dummy_query_image:
         image = torch.zeros((1,3,config['image_res'],config['image_res'])).to(device)
@@ -202,10 +213,12 @@ def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, 
     else:
         query_cls_embeds = F.normalize(query_feats[:,0,:])
         similarities = torch.mm(query_cls_embeds, multimodal_product_cls_embeds.T)
+#>>>>>>> refs/remotes/origin/master
 
-    # similarities_t = torch.mm(query_embeds,text_embeds.T)
+    #similarities_t = torch.mm(query_embeds,text_embeds.T)
     # similarities_i =  torch.mm(query_embeds,image_embeds.T)
-    # similarities = similarities_i + similarities_t
+    #similarities = similarities_i + similarities_t
+    #similarities = similarities_t
     ranked_indices = torch.argsort(similarities, descending=True,dim=1).cpu()
     return qids,ranked_indices
 
@@ -460,10 +473,9 @@ def itm_eval(scores_i2t, scores_t2i, txt2img, img2txt):
 
 
 def main(args, config):
-    utils.init_distributed_mode(args)    
-    
+    #utils.init_distributed_mode(args)    
     device = torch.device(args.device)
-
+    args.distributed=False
     # fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
     torch.manual_seed(seed)
@@ -518,10 +530,11 @@ def main(args, config):
     
     model = model.to(device)   
     
-    model_without_ddp = model
+    model_without_ddp = model 
+    print(args.distributed)
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
-        model_without_ddp = model.module   
+        model_without_ddp = model.module  
     
     arg_opt = utils.AttrDict(config['optimizer'])
     optimizer = create_optimizer(arg_opt, model)
