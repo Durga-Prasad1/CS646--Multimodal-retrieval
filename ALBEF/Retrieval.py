@@ -154,7 +154,7 @@ def evaluation_product(model,data_loader,tokenizer, device, config, dummy_query_
 
 #    multimodal_cls_embeds = F.normalize(multimodal_embeds)
 #=======
-        multimodal_embeds = torch.cat((multimodal_embeds,output.last_hidden_state[:,0,:]),dim = 0)
+        multimodal_embeds = torch.cat((multimodal_embeds.to(device),output.last_hidden_state[:,0,:].to(device)),dim = 0)
     multimodal_product_cls_embeds = F.normalize(multimodal_embeds)
 #>>>>>>> refs/remotes/origin/master
    
@@ -206,7 +206,7 @@ def evaluation_product(model,data_loader,tokenizer, device, config, dummy_query_
                                     return_dict = True,
                                     mode = 'fusion',
                                     )  
-            multimodal_query_embeds = torch.cat((multimodal_query_embeds,output.last_hidden_state[:,0,:]),dim = 0)
+            multimodal_query_embeds = torch.cat((multimodal_query_embeds.to(device),output.last_hidden_state[:,0,:].to(device)),dim = 0)
         multimodal_query_cls_embeds = F.normalize(multimodal_query_embeds)
         similarities = torch.mm(multimodal_query_cls_embeds, multimodal_product_cls_embeds.T)
     else:
