@@ -281,7 +281,7 @@ def evaluation_product_t2i(model, data_loader, tokenizer, device, config, only_t
     
     # re-ranking
     score_matrix_t2i = torch.full((num_queries,retrieval_count),-100.0).to(device)
-    for query_index, text_only_ranked_indices in tqdm(enumerate(ranked_indices),desc='reranking_topk'):
+    for query_index, text_only_ranked_indices in enumerate(tqdm(ranked_indices,desc='reranking_topk')):
         image_loader = create_loader([getProductDataloaderForImageIndices(config,text_only_ranked_indices)],[None],
                                     batch_size=[config['batch_size_test']],
                                     num_workers=[4],
