@@ -3,6 +3,8 @@ import os
 import random
 
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+from torchvision import transforms
 
 from PIL import Image
 from PIL import ImageFile
@@ -107,6 +109,27 @@ class re_product_dataset(Dataset):
         image = self.transform(image)  
 
         return image, index
+    
+class re_product_image_dataset(Dataset):
+    def __init__(self, ann_file, transform, image_root, ann_file_indices):        
+        self.ann = json.load(open(ann_file,'r'))
+        self.transform = transform
+        self.image_root = image_root
+        self.image = []
+        
+        for ann_index in ann_file_indices:
+            self.image.append(self.ann[ann_index]['image'])
+                                    
+    def __len__(self):
+        return len(self.image)
+    
+    def __getitem__(self, index):    
+        
+        image_path = os.path.join(self.image_root, self.image[index])        
+        image = Image.open(image_path).convert('RGB')    
+        image = self.transform(image)  
+
+        return image, index
       
         
 
@@ -139,3 +162,12 @@ class pretrain_dataset(Dataset):
             
 
     
+        
+def getProductDataloaderForImageIndices(config,image_indices):
+    normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    test_transform = transforms.Compose([
+        transforms.Resize((config['image_res'],config['image_res']),interpolation=Image.BICUBIC),
+        transforms.ToTensor(),
+        normalize,
+        ])  
+    return re_product_image_dataset(config['test_file'], test_transform, config['image_root'],image_indices) 

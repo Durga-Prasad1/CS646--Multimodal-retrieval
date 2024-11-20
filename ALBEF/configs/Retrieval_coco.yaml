@@ -19,7 +19,7 @@ momentum: 0.995
 vision_width: 768
 embed_dim: 256
 temp: 0.07
-k_test: 10
+k_test: 256
 
 alpha: 0.4
 distill: False
