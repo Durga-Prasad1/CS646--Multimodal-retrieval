@@ -16,6 +16,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 
+from dataset.caption_dataset import getProductDataloaderForImageIndices
 from models.model_retrieval import ALBEF
 from models.vit import interpolate_pos_embed
 from models.tokenization_bert import BertTokenizer
@@ -95,7 +96,7 @@ def compute_product_metrics(qids,ranked_indices,data_file,data_labels_file):
     return  precision,recall 
     
 @torch.no_grad()
-def evaluation_product(model,data_loader,tokenizer, device, config, dummy_query_image=True):
+def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, dummy_query_image=True):
      # test
     model.eval()   
     
@@ -207,6 +208,104 @@ def evaluation_product(model,data_loader,tokenizer, device, config, dummy_query_
     # similarities = similarities_i + similarities_t
     ranked_indices = torch.argsort(similarities, descending=True,dim=1).cpu()
     return qids,ranked_indices
+
+@torch.no_grad()
+def evaluation_product_t2i(model, data_loader, tokenizer, device, config, only_t2i_retrieval = False):
+    # test
+    model.eval() 
+
+    start_time = time.time()  
+    # No. of items to retrieve for stage 1
+    retrieval_count = min(len(data_loader.dataset),config['k_test'])
+    # Queries
+    queries_info = data_loader.dataset.queries
+    qids = [] 
+    queries = []
+    for qid,query_text in queries_info.items():
+        qids.append(qid)
+        queries.append(query_text)
+    num_queries = len(queries)
+    query_bs = 256
+    query_feats = []
+    query_embeds = []
+    query_atts = []
+    for i in tqdm(range(0, num_queries, query_bs),desc='encoding_queries'):
+        text = queries[i: min(num_queries, i+query_bs)]
+        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
+        text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
+        text_feat = text_output.last_hidden_state  
+        text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
+        query_embeds.append(text_embed)  
+        query_feats.append(text_feat)
+        query_atts.append(text_input.attention_mask)
+    query_embeds = torch.cat(query_embeds,dim=0)
+    query_feats = torch.cat(query_feats,dim=0)
+    query_atts = torch.cat(query_atts,dim=0)
+    # Product texts
+    texts = data_loader.dataset.text   
+    num_text = len(texts)
+    text_bs = 256
+    text_feats = []
+    text_embeds = []  
+    text_atts = []
+    for i in tqdm(range(0, num_text, text_bs),desc='encoding_product_descriptions'):
+        text = texts[i: min(num_text, i+text_bs)]
+        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
+        text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
+        text_feat = text_output.last_hidden_state
+        text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
+        text_embeds.append(text_embed)   
+        text_feats.append(text_feat)
+        text_atts.append(text_input.attention_mask)
+    text_embeds = torch.cat(text_embeds,dim=0)
+    text_feats = torch.cat(text_feats,dim=0)
+    text_atts = torch.cat(text_atts,dim=0)
+
+    # ranking
+    sims_matrix_text_only = query_embeds @ text_embeds.t()
+    ranked_indices = torch.argsort(sims_matrix_text_only, descending=True,dim=1)
+    ranked_indices = ranked_indices[:,:retrieval_count]
+    
+    # re-ranking
+    score_matrix_t2i = torch.full((num_queries,retrieval_count),-100.0).to(device)
+    for query_index, text_only_ranked_indices in tqdm(enumerate(ranked_indices),desc='reranking_topk'):
+        image_loader = create_loader([getProductDataloaderForImageIndices(config,text_only_ranked_indices)],[None],
+                                    batch_size=[config['batch_size_test']],
+                                    num_workers=[4],
+                                    is_trains=[False], 
+                                    collate_fns=[None])[0]
+
+        image_feats = []
+        image_embeds = []
+        for image, _ in image_loader: 
+            image = image.to(device) 
+            image_feat = model.visual_encoder(image)        
+            image_embed = model.vision_proj(image_feat[:,0,:])            
+            image_embed = F.normalize(image_embed,dim=-1)      
+            image_feats.append(image_feat)
+            image_embeds.append(image_embed)
+        image_feats = torch.cat(image_feats,dim=0)
+        image_embeds = torch.cat(image_embeds,dim=0)
+        image_att = torch.ones(image_feats.size()[:-1],dtype=torch.long).to(device)
+        output = model.text_encoder(encoder_embeds = query_feats[query_index].repeat(retrieval_count,1,1), 
+                                    attention_mask = query_atts[query_index].repeat(retrieval_count,1),
+                                    encoder_hidden_states = image_feats,
+                                    encoder_attention_mask = image_att,                             
+                                    return_dict = True,
+                                    mode = 'fusion'
+                                   )
+        score = model.itm_head(output.last_hidden_state[:,0,:])[:,1]
+        score_matrix_t2i[query_index] = score
+
+    score_matrix_t2i = torch.argsort(score_matrix_t2i, descending=True,dim=1).cpu()
+    reranked_indices = [[0 for _ in range(score_matrix_t2i.shape[1])] for _ in range(score_matrix_t2i.shape[0])]
+    for index,stage2_ranked_indices in enumerate(score_matrix_t2i):
+        reranked_indices[index] = [ranked_indices[index][i] for i in stage2_ranked_indices]
+
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    print('Evaluation time {}'.format(total_time_str)) 
+    return qids , reranked_indices
 
 @torch.no_grad()
 def evaluation(model, data_loader, tokenizer, device, config):
@@ -452,7 +551,8 @@ def main(args, config):
             # test_result = itm_eval(score_test_i2t, score_test_t2i, test_loader.dataset.txt2img, test_loader.dataset.img2txt)  
 
             if args.evaluate:      
-                qids,ranked_indices = evaluation_product(model_without_ddp, test_loader, tokenizer, device, config, True)
+                # qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, test_loader, tokenizer, device, config, True)
+                qids,ranked_indices = evaluation_product_t2i(model_without_ddp, test_loader, tokenizer, device, config)
                 precision, recall = compute_product_metrics(qids,ranked_indices,config['test_file'],config['test_labels'])
                 print(precision,recall)          
                 # log_stats = {**{f'val_{k}': v for k, v in val_result.items()},
@@ -462,7 +562,7 @@ def main(args, config):
                 # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
                 #     f.write(json.dumps(log_stats) + "\n")     
             else:
-                qids,ranked_indices = evaluation_product(model_without_ddp, val_loader, tokenizer, device, config, True)
+                qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, val_loader, tokenizer, device, config, True)
                 val_precision, val_recall = compute_product_metrics(qids,ranked_indices,config['val_file'],config['val_labels'])
                 # log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                 #              **{f'val_{k}': v for k, v in val_result.items()},
