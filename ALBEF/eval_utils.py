@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 
 def compute_ndcg_from_ranked_indices(ranked_indices,df_path = "final_esci_all_final_test_38286377-ca48-4bd0-9029-a4e43499daca.csv"):
-    df = pd.read_csv(df_path,nrows=100).fillna('')
+    df = pd.read_csv(df_path).fillna('')
    
     ndcg_gains = {
     "E" : 100,
