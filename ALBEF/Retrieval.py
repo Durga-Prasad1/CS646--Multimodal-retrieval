@@ -26,6 +26,7 @@ from dataset import create_dataset, create_sampler, create_loader
 from scheduler import create_scheduler
 from optim import create_optimizer
 from tqdm import tqdm
+from eval_utils import compute_ndcg_from_ranked_indices
 
 
 def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
@@ -92,8 +93,9 @@ def compute_product_metrics(qids,ranked_indices,data_file,data_labels_file):
 
     precision = {key:val/len(qids) for key,val in precision.items()}
     recall = {key:val/len(qids) for key,val in recall.items()}
+    ndcg = compute_ndcg_from_ranked_indices(ranked_indices)
 
-    return  precision,recall 
+    return  precision,recall,ndcg 
     
 @torch.no_grad()
 def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, dummy_query_image=True):
@@ -219,7 +221,7 @@ def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, 
     # similarities_i =  torch.mm(query_embeds,image_embeds.T)
     #similarities = similarities_i + similarities_t
     #similarities = similarities_t
-    ranked_indices = torch.argsort(similarities, descending=True,dim=1).cpu()
+    ranked_indices = torch.argsort(similarities, descending=True,dim=1).cpu().tolist()
     return qids,ranked_indices
 
 @torch.no_grad()
@@ -313,7 +315,7 @@ def evaluation_product_t2i(model, data_loader, tokenizer, device, config, only_t
     score_matrix_t2i = torch.argsort(score_matrix_t2i, descending=True,dim=1).cpu()
     reranked_indices = [[0 for _ in range(score_matrix_t2i.shape[1])] for _ in range(score_matrix_t2i.shape[0])]
     for index,stage2_ranked_indices in enumerate(score_matrix_t2i):
-        reranked_indices[index] = [ranked_indices[index][i] for i in stage2_ranked_indices]
+        reranked_indices[index] = [ranked_indices[index][i].item() for i in stage2_ranked_indices]
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -566,8 +568,8 @@ def main(args, config):
             if args.evaluate:      
                 # qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, test_loader, tokenizer, device, config, True)
                 qids,ranked_indices = evaluation_product_t2i(model_without_ddp, test_loader, tokenizer, device, config)
-                precision, recall = compute_product_metrics(qids,ranked_indices,config['test_file'],config['test_labels'])
-                print(precision,recall)          
+                precision, recall, ndcg = compute_product_metrics(qids,ranked_indices,config['test_file'],config['test_labels'])
+                print(precision,recall,ndcg)          
                 # log_stats = {**{f'val_{k}': v for k, v in val_result.items()},
                 #              **{f'test_{k}': v for k, v in test_result.items()},                  
                 #              'epoch': epoch,
@@ -576,7 +578,7 @@ def main(args, config):
                 #     f.write(json.dumps(log_stats) + "\n")     
             else:
                 qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, val_loader, tokenizer, device, config, True)
-                val_precision, val_recall = compute_product_metrics(qids,ranked_indices,config['val_file'],config['val_labels'])
+                val_precision, val_recall, val_ndcg = compute_product_metrics(qids,ranked_indices,config['val_file'],config['val_labels'])
                 # log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                 #              **{f'val_{k}': v for k, v in val_result.items()},
                 #              **{f'test_{k}': v for k, v in test_result.items()},                  
