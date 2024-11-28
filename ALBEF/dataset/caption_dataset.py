@@ -15,7 +15,7 @@ from dataset.utils import pre_caption
 
 
 class re_train_dataset(Dataset):
-    def __init__(self, ann_file, transform, image_root, max_words=30):        
+    def __init__(self, ann_file, transform, image_root,setting='Q_PI', max_words=30):        
         self.ann = []
         for f in ann_file:
             self.ann += json.load(open(f,'r'))
@@ -23,6 +23,7 @@ class re_train_dataset(Dataset):
         self.image_root = image_root
         self.max_words = max_words
         self.img_ids = {}   
+        self.setting = setting
         
         n = 0
         for ann in self.ann:
@@ -41,10 +42,12 @@ class re_train_dataset(Dataset):
         image_path = os.path.join(self.image_root,ann['image'])        
         image = Image.open(image_path).convert('RGB')   
         image = self.transform(image)
-        
-        caption = pre_caption(ann['caption'], self.max_words) 
 
-        return image, caption, self.img_ids[ann['image_id']]
+        text = ''
+        if self.setting == 'Q_PI': text = pre_caption(ann['query'],self.max_words)
+        else: text = pre_caption(ann['caption'], self.max_words) 
+
+        return image, text, self.img_ids[ann['image_id']]
     
     
 

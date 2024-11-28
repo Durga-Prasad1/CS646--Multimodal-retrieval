@@ -21,26 +21,27 @@ def prep_test_data(args):
             for attempt in range(retries):
                 try:
                     response = requests.get(img_url.strip())
-                    print(img_url)
                     if response.status_code == 200:
                         product_image_fetched = True
                         img = Image.open(io.BytesIO(response.content))
                         img_id = str(row['product_id'])+'_'+str(img_index)
                         img_path = args.img_root_path+'/'+img_id+'.PNG'
                         img.save(img_path)
-                        data.append({'image':img_path,'caption':concat_item_metadata_esci(row),'image_id':img_id,'query':row['query'],'product_id':row['product_id'],'query_id':row['query_id']})
+                        data.append({'image':img_path,'caption':concat_item_metadata_esci(row),'image_id':img_id,'query':row['query'],'product_id':row['product_id'],'query_id':row['query_id'],'esci':row['esci_label']})
                         processed_row_indices.append(index)
                         samples_needed -= 1
+                        
                         if samples_needed <= 0 : 
+                            print(samples_needed)
                             with open(args.out_path, 'w') as file:
                                 file.write(json.dumps(data))
                             
                             data_labels = {}
                             data_df = df.iloc[processed_row_indices]
                             for qid in data_df['query_id'].unique():
-                                qid = int(qid)
-                                qid_relevant_products = data_df[data_df['query_id'] == qid]['product_id'].tolist()
-                                data_labels[qid] = qid_relevant_products
+                                data_labels[ str(qid)] = {}
+                                for i,row in data_df[data_df['query_id'] == qid].iterrows():
+                                    data_labels[ str(qid)][row['product_id']] = row['esci_label']
                             
                             with open(args.labels_out_path, 'w') as file:
                                 json.dump(data_labels,file)

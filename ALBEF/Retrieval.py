@@ -16,6 +16,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 
+from data_prep_utils import clip_to_albef_data_dump, labels_to_rel_json
 from dataset.caption_dataset import getProductDataloaderForImageIndices
 from models.model_retrieval import ALBEF
 from models.vit import interpolate_pos_embed
@@ -26,7 +27,7 @@ from dataset import create_dataset, create_sampler, create_loader
 from scheduler import create_scheduler
 from optim import create_optimizer
 from tqdm import tqdm
-from eval_utils import compute_ndcg_from_ranked_indices
+from eval_utils import compute_metrics_from_ranked_indices
 
 
 def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
@@ -45,7 +46,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     for i,(image, text, idx) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         image = image.to(device,non_blocking=True)   
         idx = idx.to(device,non_blocking=True)   
-        text_input = tokenizer(text, padding='longest', max_length=75, return_tensors="pt").to(device)  
+        text_input = tokenizer(text, padding='longest', max_length=30, return_tensors="pt").to(device)  
             
         if epoch>0 or not config['warm_up']:
             alpha = config['alpha']
@@ -93,9 +94,10 @@ def compute_product_metrics(qids,ranked_indices,data_file,data_labels_file):
 
     precision = {key:val/len(qids) for key,val in precision.items()}
     recall = {key:val/len(qids) for key,val in recall.items()}
-    ndcg = compute_ndcg_from_ranked_indices(ranked_indices)
+    # ndcg = compute_ndcg_from_ranked_indices(ranked_indices)
 
-    return  precision,recall,ndcg 
+    # return  precision,recall,ndcg 
+    return  precision,recall
     
 @torch.no_grad()
 def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, dummy_query_image=True):
@@ -568,7 +570,7 @@ def main(args, config):
             if args.evaluate:      
                 # qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, test_loader, tokenizer, device, config, True)
                 qids,ranked_indices = evaluation_product_t2i(model_without_ddp, test_loader, tokenizer, device, config)
-                precision, recall, ndcg = compute_product_metrics(qids,ranked_indices,config['test_file'],config['test_labels'])
+                precision, recall, ndcg = compute_metrics_from_ranked_indices(qids,ranked_indices,config['test_file'],config['test_labels'])
                 print(precision,recall,ndcg)          
                 # log_stats = {**{f'val_{k}': v for k, v in val_result.items()},
                 #              **{f'test_{k}': v for k, v in test_result.items()},                  
@@ -578,7 +580,7 @@ def main(args, config):
                 #     f.write(json.dumps(log_stats) + "\n")     
             else:
                 qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, val_loader, tokenizer, device, config, True)
-                val_precision, val_recall, val_ndcg = compute_product_metrics(qids,ranked_indices,config['val_file'],config['val_labels'])
+                val_precision, val_recall, val_ndcg = compute_metrics_from_ranked_indices(qids,ranked_indices,config['val_file'],config['val_labels'])
                 # log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                 #              **{f'val_{k}': v for k, v in val_result.items()},
                 #              **{f'test_{k}': v for k, v in test_result.items()},                  
@@ -588,8 +590,9 @@ def main(args, config):
                 #     f.write(json.dumps(log_stats) + "\n")   
                     
                 # if val_result['r_mean']>best:
-                val_recall_mean = sum(val_recall.values())/len(val_recall.items())
-                if val_recall_mean > best:
+                # val_recall_mean = sum(val_recall.values())/len(val_recall.items())
+                val_ndcg_100 = val_ndcg['ndcg_cut_100']
+                if val_ndcg_100 > best:
                     save_obj = {
                         'model': model_without_ddp.state_dict(),
                         'optimizer': optimizer.state_dict(),
@@ -599,9 +602,9 @@ def main(args, config):
                     }
                     torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth'))  
                     # best = val_result['r_mean']    
-                    best = val_recall_mean
+                    best = val_ndcg_100
                     best_epoch = epoch
-                    print('best_val',val_precision,val_recall)
+                    print('best_val',val_precision,val_recall,val_ndcg)
                     
         if args.evaluate: 
             break

@@ -35,6 +35,14 @@ def concat_item_metadata(dp):
         .replace('\r', '') \
         .strip()
     return dp
+
+def clean_text(text):
+    return text \
+        .replace('\t', ' ') \
+        .replace('\n', ' ') \
+        .replace('\r', '') \
+        .strip()
+
 def concat_item_metadata_esci(dp):
     meta = ''
     flag = False
@@ -50,9 +58,5 @@ def concat_item_metadata_esci(dp):
         if flag:
             meta += ' '
         meta += dp['product_description']
-    return meta \
-        .replace('\t', ' ') \
-        .replace('\n', ' ') \
-        .replace('\r', '') \
-        .strip()
+    return clean_text(meta)
     # return dp

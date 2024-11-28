@@ -48,7 +48,7 @@ def create_dataset(dataset, config):
         return train_dataset, val_dataset, test_dataset   
     
     elif dataset=='pre':
-        train_dataset = re_train_dataset(config['train_file'], train_transform, config['image_root'],75)
+        train_dataset = re_train_dataset(config['train_file'], train_transform, config['image_root'],'Q_PI')
         val_dataset = re_product_dataset(config['val_file'], test_transform, config['image_root'],75)  
         test_dataset = re_product_dataset(config['test_file'], test_transform, config['image_root'],75)                
         return train_dataset, val_dataset, test_dataset 
