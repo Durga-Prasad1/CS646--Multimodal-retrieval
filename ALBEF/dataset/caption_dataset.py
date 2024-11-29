@@ -2,6 +2,7 @@ import json
 import os
 import random
 
+import torch
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -107,9 +108,15 @@ class re_product_dataset(Dataset):
     
     def __getitem__(self, index):    
         
-        image_path = os.path.join(self.image_root, self.ann[index]['image'])        
-        image = Image.open(image_path).convert('RGB')    
-        image = self.transform(image)  
+        image_path = ""
+        image = None
+        if self.ann[index]['image'] != '' : 
+            image_path = os.path.join(self.image_root, self.ann[index]['image']) 
+            image = Image.open(image_path).convert('RGB')   
+            image = self.transform(image) 
+        else:
+            image = torch.zeros((3,384,384))
+         
 
         return image, index
     
@@ -128,9 +135,14 @@ class re_product_image_dataset(Dataset):
     
     def __getitem__(self, index):    
         
-        image_path = os.path.join(self.image_root, self.image[index])        
-        image = Image.open(image_path).convert('RGB')    
-        image = self.transform(image)  
+        image_path = ""
+        image = None
+        if self.ann[index]['image'] != '' : 
+            image_path = os.path.join(self.image_root, self.ann[index]['image']) 
+            image = Image.open(image_path).convert('RGB')   
+            image = self.transform(image) 
+        else:
+            image = torch.zeros((3,384,384))  
 
         return image, index
       

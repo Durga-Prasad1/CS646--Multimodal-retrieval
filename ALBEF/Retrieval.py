@@ -100,7 +100,7 @@ def compute_product_metrics(qids,ranked_indices,data_file,data_labels_file):
     return  precision,recall
     
 @torch.no_grad()
-def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, dummy_query_image=True):
+def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, setting='text'):
      # test
     model.eval()   
     
@@ -124,44 +124,6 @@ def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, 
     text_embeds = torch.cat(text_embeds,dim=0)
     text_feats = torch.cat(text_feats,dim=0)
     text_atts = torch.cat(text_atts,dim=0)
-    
-    image_feats = []
-    image_embeds = []
-    for image, img_id in tqdm(data_loader): 
-        image = image.to(device) 
-        image_feat = model.visual_encoder(image)          
-        image_feats.append(image_feat)
-        image_embed = model.vision_proj(image_feat[:,0,:])            
-        image_embed = F.normalize(image_embed,dim=-1)   
-        image_embeds.append(image_embed)
-     
-    image_feats = torch.cat(image_feats,dim=0)
-    image_embeds = torch.cat(image_embeds,dim=0)
-
-
-    multimodal_embeds = torch.tensor([])
-    fusion_bs = config['batch_size_test']
-    for i in tqdm(range(0, num_text, fusion_bs)):
-        text_feats_fusion = text_feats[i: min(num_text, i+fusion_bs)]
-        text_attn_fusion = text_atts[i: min(num_text, i+fusion_bs)]
-        image_feats_fusion = image_feats[i: min(num_text, i+fusion_bs)]
-        image_attn_fusion = torch.ones(image_feats_fusion.size()[:-1],dtype=torch.long).to(device)
-        output = model.text_encoder(encoder_embeds = text_feats_fusion, 
-                                attention_mask = text_attn_fusion,
-                                encoder_hidden_states = image_feats_fusion,
-                                encoder_attention_mask = image_attn_fusion,      
-                                return_dict = True,
-                                mode = 'fusion',
-                                )  
-#<<<<<<< HEAD
- #       multimodal_embeds = torch.cat((multimodal_embeds.to(device) ,output.last_hidden_state[:,0,:].to(device) ),dim = 0)
-
-
-#    multimodal_cls_embeds = F.normalize(multimodal_embeds)
-#=======
-        multimodal_embeds = torch.cat((multimodal_embeds.to(device),output.last_hidden_state[:,0,:].to(device)),dim = 0)
-    multimodal_product_cls_embeds = F.normalize(multimodal_embeds)
-#>>>>>>> refs/remotes/origin/master
    
     queries_info = data_loader.dataset.queries
     qids = [] 
@@ -187,42 +149,26 @@ def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, 
     query_feats = torch.cat(query_feats,dim=0)
     query_atts = torch.cat(query_atts,dim=0)
 
-#<<<<<<< HEAD
-    query_cls_embeds = F.normalize(query_feats[:,0,:])
-    # similarities = torch.mm(query_cls_embeds, multimodal_cls_embeds.T)
-#=======
-    similarities = None
-    if dummy_query_image:
-        image = torch.zeros((1,3,config['image_res'],config['image_res'])).to(device)
-        image_feat = model.visual_encoder(image)
-        query_image_feats = image_feat.repeat((num_queries,1,1))
+    similarities_t = torch.mm(query_embeds,text_embeds.T)
+    similarities = similarities_t
+    if setting == 'fusion':
 
-        bs = config['batch_size_test']
-        multimodal_query_embeds = torch.tensor([])
-        for i in tqdm(range(0, num_queries, bs)):
-            query_feats_fusion = query_feats[i: min(num_queries, i+bs)]
-            query_attn_fusion = query_atts[i: min(num_queries, i+bs)]
-            query_image_feats_fusion = query_image_feats[i: min(num_queries, i+bs)]
-            query_image_attn_fusion = torch.ones(query_image_feats_fusion.size()[:-1],dtype=torch.long).to(device)
-            output = model.text_encoder(encoder_embeds = query_feats_fusion, 
-                                    attention_mask = query_attn_fusion,
-                                    encoder_hidden_states = query_image_feats_fusion,
-                                    encoder_attention_mask = query_image_attn_fusion,      
-                                    return_dict = True,
-                                    mode = 'fusion',
-                                    )  
-            multimodal_query_embeds = torch.cat((multimodal_query_embeds.to(device),output.last_hidden_state[:,0,:].to(device)),dim = 0)
-        multimodal_query_cls_embeds = F.normalize(multimodal_query_embeds)
-        similarities = torch.mm(multimodal_query_cls_embeds, multimodal_product_cls_embeds.T)
-    else:
-        query_cls_embeds = F.normalize(query_feats[:,0,:])
-        similarities = torch.mm(query_cls_embeds, multimodal_product_cls_embeds.T)
-#>>>>>>> refs/remotes/origin/master
+        image_feats = []
+        image_embeds = []
+        for image, img_id in tqdm(data_loader): 
+            image = image.to(device) 
+            image_feat = model.visual_encoder(image)          
+            image_feats.append(image_feat)
+            image_embed = model.vision_proj(image_feat[:,0,:])            
+            image_embed = F.normalize(image_embed,dim=-1)   
+            image_embeds.append(image_embed)
+        
+        image_feats = torch.cat(image_feats,dim=0)
+        image_embeds = torch.cat(image_embeds,dim=0)
 
-    #similarities_t = torch.mm(query_embeds,text_embeds.T)
-    # similarities_i =  torch.mm(query_embeds,image_embeds.T)
-    #similarities = similarities_i + similarities_t
-    #similarities = similarities_t
+        similarities_i =  torch.mm(query_embeds,image_embeds.T)
+        similarities = similarities_i + similarities_t
+
     ranked_indices = torch.argsort(similarities, descending=True,dim=1).cpu().tolist()
     return qids,ranked_indices
 
@@ -568,7 +514,7 @@ def main(args, config):
             # test_result = itm_eval(score_test_i2t, score_test_t2i, test_loader.dataset.txt2img, test_loader.dataset.img2txt)  
 
             if args.evaluate:      
-                # qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, test_loader, tokenizer, device, config, True)
+                # qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, test_loader, tokenizer, device, config, 'fusion')
                 qids,ranked_indices = evaluation_product_t2i(model_without_ddp, test_loader, tokenizer, device, config)
                 precision, recall, ndcg = compute_metrics_from_ranked_indices(qids,ranked_indices,config['test_file'],config['test_labels'])
                 print(precision,recall,ndcg)          
@@ -579,7 +525,7 @@ def main(args, config):
                 # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
                 #     f.write(json.dumps(log_stats) + "\n")     
             else:
-                qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, val_loader, tokenizer, device, config, True)
+                qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, val_loader, tokenizer, device, config, 'fusion')
                 val_precision, val_recall, val_ndcg = compute_metrics_from_ranked_indices(qids,ranked_indices,config['val_file'],config['val_labels'])
                 # log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                 #              **{f'val_{k}': v for k, v in val_result.items()},
