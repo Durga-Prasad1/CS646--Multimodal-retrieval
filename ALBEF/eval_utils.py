@@ -25,17 +25,17 @@ def compute_metrics_from_ranked_indices(qids,ranked_indices,data_file,data_label
             q_rels[qid][product_id] = ndcg_gains[esci_label]
 
     evaluator = pytrec_eval.RelevanceEvaluator(
-        q_rels, {'ndcg_cut_10', 'ndcg_cut_100','P_5','P_10','recall_5','recall_10'}
+        q_rels, {'ndcg','ndcg_cut_10', 'ndcg_cut_100','P_5','P_10','recall_5','recall_10'}
     )
   
     q_preds = {str(qids[i]):{str(data[docid]['product_id']): len(ranked_index)-doc_index for doc_index,docid in enumerate(ranked_index)} for i,ranked_index in enumerate(ranked_indices)}
     results = evaluator.evaluate(q_preds)
-    avg = {'ndcg_cut_10': 0, 'ndcg_cut_100': 0,'P_5':0,'P_10':0,'recall_5':0,'recall_10':0}
+    avg = {'ndcg':0,'ndcg_cut_10': 0, 'ndcg_cut_100': 0,'P_5':0,'P_10':0,'recall_5':0,'recall_10':0}
 
     for key in avg.keys():
         avg[key]=sum([results[i][key] for i in results.keys()])* 1.00/len(results.keys())
 
-    return {'P_5':avg['P_5'],'P_10':avg['P_10']},{'recall_5':avg['recall_5'],'recall_10':avg['recall_10']},{'ndcg_cut_10':avg['ndcg_cut_10'],'ndcg_cut_100':avg['ndcg_cut_100']}
+    return {'P_5':avg['P_5'],'P_10':avg['P_10']},{'recall_5':avg['recall_5'],'recall_10':avg['recall_10']},{'ndcg':avg['ndcg'],'ndcg_cut_10':avg['ndcg_cut_10'],'ndcg_cut_100':avg['ndcg_cut_100']}
 
 
 def compute_metrics_from_ranked_indices_v2(qids,ranked_indices,data_file,data_labels_file,df_path = "df_Examples_Products_IMG_URLS_test.csv"):
