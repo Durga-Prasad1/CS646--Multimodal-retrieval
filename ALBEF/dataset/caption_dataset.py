@@ -145,6 +145,44 @@ class re_product_image_dataset(Dataset):
             image = torch.zeros((3,384,384))  
 
         return image, index
+    
+class re_product_inbatch_dataset(Dataset):
+    def __init__(self, ann_file,labels_file,transform, image_root, max_words=30):        
+        self.ann = json.load(open(ann_file,'r'))
+        self.labels = json.load(open(labels_file,'r'))
+        self.qid_product = {qid:list(self.labels[qid].keys()) for qid in self.labels.keys()}
+
+        self.transform = transform
+        self.image_root = image_root
+        self.max_words = max_words 
+        
+        self.text = []
+        self.image = []
+        self.product_ids_index = {}
+        self.queries = {}
+
+        for index,ann_sample in enumerate(self.ann):
+            self.text.append(pre_caption(ann_sample['caption'],self.max_words))
+            self.image.append(ann_sample['image'])
+            self.product_ids_index[ann_sample['product_id']] = index 
+            if ann_sample['query'] not in self.queries.keys():
+                self.queries[ann_sample['query_id']] = ann_sample['query']
+        
+                                    
+    def __len__(self):
+        return len(self.image)
+    
+    def __getitem__(self, index):    
+        image_path = ""
+        image = None
+        if self.image[index] != '' : 
+            image_path = os.path.join(self.image_root, self.image[index]) 
+            image = Image.open(image_path).convert('RGB')   
+            image = self.transform(image) 
+        else:
+            image = torch.zeros((3,384,384))   
+
+        return image, index
       
         
 

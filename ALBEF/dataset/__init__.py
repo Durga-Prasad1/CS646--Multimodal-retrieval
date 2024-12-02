@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
 
-from dataset.caption_dataset import re_train_dataset, re_eval_dataset, pretrain_dataset , re_product_dataset
+from dataset.caption_dataset import re_product_inbatch_dataset, re_train_dataset, re_eval_dataset, pretrain_dataset , re_product_dataset
 from dataset.nlvr_dataset import nlvr_dataset
 from dataset.ve_dataset import ve_dataset
 from dataset.vqa_dataset import vqa_dataset
@@ -51,6 +51,12 @@ def create_dataset(dataset, config):
         train_dataset = re_train_dataset(config['train_file'], train_transform, config['image_root'],'Q_PI')
         val_dataset = re_product_dataset(config['val_file'], test_transform, config['image_root'],75)  
         test_dataset = re_product_dataset(config['test_file'], test_transform, config['image_root'],75)                
+        return train_dataset, val_dataset, test_dataset 
+    
+    elif dataset=='pre_inbatch':
+        train_dataset = re_train_dataset(config['train_file'], train_transform, config['image_root'],'Q_PI')
+        val_dataset = re_product_inbatch_dataset(config['val_file'], config['val_labels'],test_transform, config['image_root'],75)  
+        test_dataset = re_product_inbatch_dataset(config['test_file'], config['test_labels'],test_transform, config['image_root'],75)                
         return train_dataset, val_dataset, test_dataset 
     
     elif dataset=='vqa': 

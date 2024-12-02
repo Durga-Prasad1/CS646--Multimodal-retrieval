@@ -27,7 +27,7 @@ from dataset import create_dataset, create_sampler, create_loader
 from scheduler import create_scheduler
 from optim import create_optimizer
 from tqdm import tqdm
-from eval_utils import compute_metrics_from_ranked_indices
+from eval_utils import compute_metrics_from_ranked_indices, compute_metrics_from_ranked_productIds
 
 
 def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
@@ -98,6 +98,88 @@ def compute_product_metrics(qids,ranked_indices,data_file,data_labels_file):
 
     # return  precision,recall,ndcg 
     return  precision,recall
+
+@torch.no_grad()
+def evaluation_product_mean_fusion_inbatch(model,data_loader,tokenizer, device, config, setting='text'):
+     # test
+    model.eval()   
+    
+    print('Computing features for evaluation...')
+
+    texts = data_loader.dataset.text   
+    num_text = len(texts)
+    text_bs = 256
+    text_feats = []
+    text_embeds = []
+    text_atts = []
+    for i in tqdm(range(0, num_text, text_bs)):
+        text = texts[i: min(num_text, i+text_bs)]
+        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
+        text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
+        text_feat = text_output.last_hidden_state 
+        text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
+        text_embeds.append(text_embed)   
+        text_feats.append(text_feat)
+        text_atts.append(text_input.attention_mask)
+    text_embeds = torch.cat(text_embeds,dim=0)
+    text_feats = torch.cat(text_feats,dim=0)
+    text_atts = torch.cat(text_atts,dim=0)
+   
+    queries_info = data_loader.dataset.queries
+    qids = [] 
+    queries = []
+    for qid,query_text in queries_info.items():
+        qids.append(qid)
+        queries.append(query_text)
+    num_queries = len(queries)
+    query_bs = 256
+    query_feats = []
+    query_embeds = []
+    query_atts = []
+    for i in tqdm(range(0, num_queries, query_bs)):
+        text = queries[i: min(num_queries, i+query_bs)]
+        text_input = tokenizer(text, padding='max_length', truncation=True, max_length=75, return_tensors="pt").to(device) 
+        text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
+        text_feat = text_output.last_hidden_state  
+        text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
+        query_embeds.append(text_embed)  
+        query_feats.append(text_feat)
+        query_atts.append(text_input.attention_mask)
+    query_embeds = torch.cat(query_embeds,dim=0)
+    query_feats = torch.cat(query_feats,dim=0)
+    query_atts = torch.cat(query_atts,dim=0)
+
+    image_feats = []
+    image_embeds = []
+    image_feats = []
+    image_embeds = []
+    if setting == 'fusion':
+        for image, img_id in tqdm(data_loader): 
+            image = image.to(device) 
+            image_feat = model.visual_encoder(image)          
+            image_feats.append(image_feat)
+            image_embed = model.vision_proj(image_feat[:,0,:])            
+            image_embed = F.normalize(image_embed,dim=-1)   
+            image_embeds.append(image_embed)
+    
+        image_feats = torch.cat(image_feats,dim=0)
+        image_embeds = torch.cat(image_embeds,dim=0)
+
+    ranked_indices = []
+    for qid_index,qid in enumerate(qids):
+        qid_products = data_loader.dataset.qid_product[str(qid)]
+        qid_product_embeds = []
+        for qid_product in qid_products:
+            index = data_loader.dataset.product_ids_index[qid_product]
+            product_embed = text_embeds[index]
+            if setting == 'fusion':
+                product_embed = image_embeds[index] + text_embeds[index]
+            qid_product_embeds.append(product_embed.unsqueeze(0))
+        qid_sims = torch.mm(query_embeds[qid_index].unsqueeze(0),torch.cat(qid_product_embeds,dim=0).T)
+        sorted_indices = torch.argsort(qid_sims, descending=True,dim=1).squeeze(0)
+        ranked_indices.append([qid_products[sorted_index.item()] for sorted_index in sorted_indices])
+
+    return qids,ranked_indices
     
 @torch.no_grad()
 def evaluation_product_mean_fusion(model,data_loader,tokenizer, device, config, setting='text'):
@@ -514,6 +596,10 @@ def main(args, config):
             # test_result = itm_eval(score_test_i2t, score_test_t2i, test_loader.dataset.txt2img, test_loader.dataset.img2txt)  
 
             if args.evaluate:      
+
+                # qids,ranked_indices = evaluation_product_mean_fusion_inbatch(model_without_ddp, test_loader, tokenizer, device, config, 'fusion')
+                # precision, recall, ndcg = compute_metrics_from_ranked_productIds(qids,ranked_indices,config['test_file'],config['test_labels'])
+
                 # qids,ranked_indices = evaluation_product_mean_fusion(model_without_ddp, test_loader, tokenizer, device, config, 'fusion')
                 qids,ranked_indices = evaluation_product_t2i(model_without_ddp, test_loader, tokenizer, device, config)
                 precision, recall, ndcg = compute_metrics_from_ranked_indices(qids,ranked_indices,config['test_file'],config['test_labels'])
