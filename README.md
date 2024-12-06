@@ -1,1 +1,1 @@
-# CS646---Multimodal-retrieval-with-token-pruning
+# CS646---Multimodal-retrieval
