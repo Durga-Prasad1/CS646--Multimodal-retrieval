@@ -1,0 +1,15 @@
+python main.py \
+    --remote_url "http://localhost:8000/v1" \
+    --method data_gen \
+    --num_processes 64 \
+    --save_traces_sft \
+    --use_chat_template true \
+    --retriever_type colbert \
+    --num_rollouts 12 \
+    --max_depth_allowed 12 \
+    --gold_answer_reward \
+    --data_path data/actual_splits/2Wiki/data_train.json \
+    --out_dir run_outputs/2wiki_72b_train_colbert_2 \
+    --dataset_name 2Wiki \
+    --sample 4000 \
+    --offset 12000
